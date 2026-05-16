@@ -6,7 +6,9 @@ Hermes controls the outer loop **and the recovery decision**. It starts one back
 
 Shell scripts control the state machine. They decide which task is next (topological order from `task-queue.md`), create the worktree, start dependency services, run checks, stage the candidate diff before read-only verification, parse the verifier verdict, run the Codex recovery advisory pass, publish the awaiting marker, wait for Hermes to call `decide-recovery.sh` (with timeout fallback to the advisory), stage and audit commits, preserve blocked patches, and write stable logs.
 
-Codex CLI controls implementation work and recovery analysis. Each task runs as a bounded loop:
+Before task execution, the runner may call Codex CLI once in workspace-write mode to turn `requirements.md` into `generated/plan.md`, `generated/tasks/*.md`, and `task-queue.md`. That planning pass is scoped to long-run planning files only and is committed as the first commit on the long-run branch. If a valid manual `task-queue.md` already exists, this planning step is skipped.
+
+Codex CLI controls implementation work and recovery analysis. Each generated or manually supplied task runs as a bounded loop:
 
 1. `analyze`: read-only, high or xhigh effort.
 2. `build`: workspace-write, high effort, one coherent slice. Codex edits files only; it does not run staging or commit commands.

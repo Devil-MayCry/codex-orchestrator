@@ -50,6 +50,12 @@ CONTINUE_ON_BLOCKED="${CONTINUE_ON_BLOCKED:-1}"
 SKIP_DEPENDENTS_ON_BLOCKED="${SKIP_DEPENDENTS_ON_BLOCKED:-1}"
 USE_HERMES_KANBAN="${USE_HERMES_KANBAN:-1}"
 DRY_RUN="${DRY_RUN:-0}"
+AUTO_PLAN_FROM_REQUIREMENTS="${AUTO_PLAN_FROM_REQUIREMENTS:-1}"
+REQUIREMENTS_DOC="${REQUIREMENTS_DOC:-ops/hermes-longrun/requirements.md}"
+AUTO_PLAN_ARTIFACT_DIR="${AUTO_PLAN_ARTIFACT_DIR:-ops/hermes-longrun/generated}"
+AUTO_SETUP_KANBAN="${AUTO_SETUP_KANBAN:-1}"
+ACTIVE_LONGRUN_DIR="${LONGRUN_DIR}"
+ACTIVE_SCRIPT_DIR="${SCRIPT_DIR}"
 
 mkdir -p "${RUN_DIR}"
 exec > >(tee -a "${PIPELINE_LOG}") 2>&1
@@ -64,7 +70,7 @@ fail() {
 }
 
 task_rows() {
-  grep '^TASK|' "${LONGRUN_DIR}/task-queue.md" || true
+  grep '^TASK|' "${ACTIVE_LONGRUN_DIR}/task-queue.md" || true
 }
 
 task_sequence() {
@@ -72,7 +78,7 @@ task_sequence() {
     printf '%s\n' ${TASK_SEQUENCE}
     return 0
   fi
-  python3 - "${LONGRUN_DIR}/task-queue.md" <<'PY'
+  python3 - "${ACTIVE_LONGRUN_DIR}/task-queue.md" <<'PY'
 import sys
 from collections import defaultdict, deque
 
@@ -135,7 +141,7 @@ PY
 task_field_for() {
   local key="$1"
   local index="$2"
-  awk -F'|' -v key="${key}" -v index="${index}" '$1 == "TASK" && $2 == key { print $index; exit }' "${LONGRUN_DIR}/task-queue.md"
+  awk -F'|' -v key="${key}" -v index="${index}" '$1 == "TASK" && $2 == key { print $index; exit }' "${ACTIVE_LONGRUN_DIR}/task-queue.md"
 }
 
 task_doc_for() {
@@ -277,25 +283,87 @@ record_dependency_blocked_task() {
   } >>"${BLOCKED_TASKS_FILE}"
 }
 
-if [[ -f "${LONGRUN_DIR}/runs/kanban-task-map.env" ]]; then
-  # shellcheck disable=SC1091
-  source "${LONGRUN_DIR}/runs/kanban-task-map.env"
-fi
+repo_relpath() {
+  local path="$1"
+  local root="${2:-${REPO_ROOT}}"
+  python3 - "$path" "$root" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1]).resolve(strict=False)
+root = Path(sys.argv[2]).resolve(strict=False)
+try:
+    print(path.relative_to(root))
+except ValueError:
+    raise SystemExit(1)
+PY
+}
+
+repo_path_for_config() {
+  local root="$1"
+  local configured="$2"
+  python3 - "$root" "$configured" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+path = Path(sys.argv[2]).expanduser()
+if not path.is_absolute():
+    path = root / path
+print(path.resolve(strict=False))
+PY
+}
+
+sync_file_to_worktree() {
+  local rel="$1"
+  local src="${REPO_ROOT}/${rel}"
+  local dest="${WORKTREE_DIR}/${rel}"
+  [[ -f "${src}" ]] || return 0
+  mkdir -p "$(dirname "${dest}")"
+  cp "${src}" "${dest}"
+}
+
+sync_runtime_inputs_to_worktree() {
+  local longrun_rel="$1"
+  sync_file_to_worktree "${longrun_rel}/config.env"
+  sync_file_to_worktree "${REQUIREMENTS_REL}"
+}
+
+task_queue_needs_auto_plan() {
+  [[ "${AUTO_PLAN_FROM_REQUIREMENTS}" == "1" ]] || return 1
+  local queue="${ACTIVE_LONGRUN_DIR}/task-queue.md"
+  [[ ! -f "${queue}" ]] && return 0
+  if grep -q '^TASK|EX-001|' "${queue}"; then
+    return 0
+  fi
+  if ! grep -q '^TASK|' "${queue}"; then
+    return 0
+  fi
+  return 1
+}
+
+generate_and_commit_task_plan() {
+  log "auto planning from requirements: ${REQUIREMENTS_REL}"
+  RUN_ID="${RUN_ID}" RUN_DIR="${RUN_DIR}" "${ACTIVE_SCRIPT_DIR}/generate-task-plan.sh"
+
+  git -C "${WORKTREE_DIR}" add -- \
+    "${REQUIREMENTS_REL}" \
+    "${TASK_QUEUE_REL}" \
+    "${AUTO_PLAN_ARTIFACT_REL}"
+
+  if git -C "${WORKTREE_DIR}" diff --cached --quiet; then
+    fail "auto planning produced no committable plan changes"
+  fi
+
+  git -C "${WORKTREE_DIR}" commit -m "longrun: generate task plan from requirements"
+  log "committed generated task plan"
+}
 
 log "run id: ${RUN_ID}"
 log "repo root: ${REPO_ROOT}"
-log "longrun dir: ${LONGRUN_DIR}"
+log "source longrun dir: ${LONGRUN_DIR}"
 log "execution mode: serial (plus variant; dependency graph drives topological order)"
 log "continue on blocked: ${CONTINUE_ON_BLOCKED}"
-planned_sequence="$(task_sequence | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
-if [[ -n "${planned_sequence}" ]]; then
-  log "planned task sequence: ${planned_sequence}"
-fi
-
-if [[ "${RUN_PREFLIGHT}" == "1" ]]; then
-  log "running preflight"
-  REQUIRE_KANBAN="${USE_HERMES_KANBAN}" "${SCRIPT_DIR}/preflight.sh"
-fi
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
 BRANCH="${BRANCH:-${WORKTREE_BRANCH_PREFIX}-${timestamp}}"
@@ -308,11 +376,49 @@ else
   git -C "${REPO_ROOT}" worktree add -b "${BRANCH}" "${WORKTREE_DIR}" HEAD
 fi
 
+LONGRUN_REL="$(repo_relpath "${LONGRUN_DIR}" "${REPO_ROOT}")" || fail "long-run directory must be inside repository"
+ACTIVE_LONGRUN_DIR="${WORKTREE_DIR}/${LONGRUN_REL}"
+ACTIVE_SCRIPT_DIR="${ACTIVE_LONGRUN_DIR}/scripts"
+REQUIREMENTS_PATH="$(repo_path_for_config "${REPO_ROOT}" "${REQUIREMENTS_DOC}")"
+REQUIREMENTS_REL="$(repo_relpath "${REQUIREMENTS_PATH}" "${REPO_ROOT}")" || fail "REQUIREMENTS_DOC must be inside repository"
+AUTO_PLAN_ARTIFACT_PATH="$(repo_path_for_config "${REPO_ROOT}" "${AUTO_PLAN_ARTIFACT_DIR}")"
+AUTO_PLAN_ARTIFACT_REL="$(repo_relpath "${AUTO_PLAN_ARTIFACT_PATH}" "${REPO_ROOT}")" || fail "AUTO_PLAN_ARTIFACT_DIR must be inside repository"
+TASK_QUEUE_REL="${LONGRUN_REL}/task-queue.md"
+
+sync_runtime_inputs_to_worktree "${LONGRUN_REL}"
+
+if task_queue_needs_auto_plan; then
+  generate_and_commit_task_plan
+else
+  log "using existing task queue; auto planning skipped"
+fi
+
+if [[ "${USE_HERMES_KANBAN}" == "1" && "${AUTO_SETUP_KANBAN}" == "1" && "${DRY_RUN}" != "1" ]]; then
+  log "setting up Hermes kanban from active task plan"
+  "${ACTIVE_SCRIPT_DIR}/setup-hermes-kanban.sh"
+fi
+
+if [[ -f "${ACTIVE_LONGRUN_DIR}/runs/kanban-task-map.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${ACTIVE_LONGRUN_DIR}/runs/kanban-task-map.env"
+fi
+
+planned_sequence="$(task_sequence | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+if [[ -n "${planned_sequence}" ]]; then
+  log "planned task sequence: ${planned_sequence}"
+fi
+
+if [[ "${RUN_PREFLIGHT}" == "1" ]]; then
+  log "running preflight"
+  REQUIRE_KANBAN="${USE_HERMES_KANBAN}" "${ACTIVE_SCRIPT_DIR}/preflight.sh"
+fi
+
 {
   printf 'RUN_ID=%q\n' "${RUN_ID}"
   printf 'REPO_ROOT=%q\n' "${REPO_ROOT}"
   printf 'WORKTREE_DIR=%q\n' "${WORKTREE_DIR}"
   printf 'BRANCH=%q\n' "${BRANCH}"
+  printf 'ACTIVE_LONGRUN_DIR=%q\n' "${ACTIVE_LONGRUN_DIR}"
   printf 'HERMES_BOARD=%q\n' "${HERMES_BOARD:-}"
   printf 'CONTINUE_ON_BLOCKED=%q\n' "${CONTINUE_ON_BLOCKED}"
   printf 'SKIP_DEPENDENTS_ON_BLOCKED=%q\n' "${SKIP_DEPENDENTS_ON_BLOCKED}"
@@ -357,14 +463,14 @@ while IFS= read -r task; do
 
   log "starting ${task}"
   if REPO_WORKDIR="${WORKTREE_DIR}" \
-    ORCH_REPO_ROOT="${REPO_ROOT}" \
+    ORCH_REPO_ROOT="${WORKTREE_DIR}" \
     RUN_ID="${RUN_ID}" \
     RUN_DIR="${RUN_DIR}" \
     DRY_RUN="${DRY_RUN}" \
     BLOCKED_TASKS="${blocked_tasks}" \
     BLOCKED_TASKS_REPORT="${BLOCKED_TASKS_FILE}" \
     RECOVERY_DECISIONS_FILE="${RECOVERY_DECISIONS_FILE}" \
-    "${SCRIPT_DIR}/run-one-task.sh" "${task}"; then
+    "${ACTIVE_SCRIPT_DIR}/run-one-task.sh" "${task}"; then
     log "${task} completed"
     complete_kanban_task "${task}" "${RUN_DIR}/${task}/summary.md"
   else
@@ -388,7 +494,7 @@ done < <(task_sequence)
 
 final_prompt="${RUN_DIR}/final-review.prompt.md"
 {
-  cat "${LONGRUN_DIR}/prompts/final-review.md"
+  cat "${ACTIVE_LONGRUN_DIR}/prompts/final-review.md"
   printf '\n\nRun directory: %s\n' "${RUN_DIR}"
   printf 'Worktree: %s\n' "${WORKTREE_DIR}"
   printf 'Branch: %s\n' "${BRANCH}"

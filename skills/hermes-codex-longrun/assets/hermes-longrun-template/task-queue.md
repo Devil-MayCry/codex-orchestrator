@@ -1,6 +1,11 @@
 # Task Queue
 
-Edit the machine-readable `TASK|...` lines before a real run.
+By default, leave this placeholder in place. When Hermes starts the pipeline,
+Codex generates a real task queue from `requirements.md` and commits it on the
+long-run branch.
+
+Advanced users may replace the machine-readable `TASK|...` lines before a real
+run. If the queue already validates, auto-planning is skipped.
 
 Format (the parser reads lines that start with `TASK|`):
 

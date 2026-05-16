@@ -4,8 +4,8 @@
 
 Before launching unattended work, define:
 
-- Task identifiers, task docs, execution order, and dependencies.
-- Target checks for each task.
+- A `requirements.md` document detailed enough for Codex to generate task identifiers, task docs, execution order, dependencies, and checks.
+- Optional manual task identifiers, task docs, execution order, dependencies, and checks if you choose to bypass requirements-based planning.
 - Which checks are critical task gates, which are full-suite regression gates, and when scoped acceptance is allowed.
 - Recovery policy: allowed recovery write scopes, replacement check whitelist, and how `MAX_FIX_ATTEMPTS` bounds total build attempts.
 - Required services and how to start isolated local dependencies.
@@ -17,12 +17,10 @@ Before launching unattended work, define:
 
 1. Scaffold the template into the project.
 2. Commit the scaffold before the first long run so new worktrees can see stable scripts.
-3. Fill `task-queue.md` with task ids, docs, dependencies, and checks.
-4. Copy `config.env.example` to `config.env` and override only what you need. Defaults live in `config.defaults.env`; the runner loads `config.env` first and falls back to `config.defaults.env`.
-5. Customize prompt templates for project conventions and acceptance criteria.
-6. Run `scripts/preflight.sh`.
-7. Run `scripts/setup-hermes-kanban.sh` if Hermes kanban trace is desired.
-8. Start Hermes with `hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"`.
+3. Replace `requirements.md` with the requirement, PRD, or implementation brief.
+4. Copy `config.env.example` to `config.env` only when you need local overrides. Defaults live in `config.defaults.env`; the runner loads `config.env` first and falls back to `config.defaults.env`.
+5. Customize prompt templates only when the project needs special planning or acceptance conventions.
+6. Start Hermes with `hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"`. The startup script generates a task plan if the queue is still a placeholder, commits the plan on the long-run branch, runs preflight, sets up kanban, and starts execution.
 
 ## Preflight Expectations
 
@@ -58,8 +56,6 @@ Use this exact supervision shape:
 
 ```bash
 cd /path/to/project
-bash ops/hermes-longrun/scripts/preflight.sh
-bash ops/hermes-longrun/scripts/setup-hermes-kanban.sh
 hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"
 ```
 

@@ -23,7 +23,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def iter_template_files(template_root: Path) -> list[Path]:
-    return sorted(path for path in template_root.rglob("*") if path.is_file())
+    return sorted(
+        path
+        for path in template_root.rglob("*")
+        if path.is_file()
+        and "__pycache__" not in path.parts
+        and path.suffix not in {".pyc", ".pyo"}
+    )
 
 
 def main() -> int:

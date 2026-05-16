@@ -1,27 +1,32 @@
 # Hermes + Codex Long-Run (Plus)
 
-This folder is a reusable local runner for unattended long-running work.
+This folder is a reusable local runner for unattended long-running work. The default flow starts from one `requirements.md` document and lets Codex generate the task plan before the existing Hermes-supervised execution loop begins.
 
 This is the **plus** variant: Codex only writes recovery advisories; Hermes makes the final recovery decision through `scripts/decide-recovery.sh`. If Hermes does not respond within `HERMES_DECISION_TIMEOUT_SECONDS` (default 300), the runner auto-approves the advisory and records `auto_approved_by_timeout=1`. Execution is strictly serial; the dependency graph in `task-queue.md` is used for topological ordering and dependency-cascade skipping only.
 
 ## First-Time Setup
 
-1. Edit `task-queue.md`.
-2. Copy `config.env.example` to `config.env` and add only the values you want to override; defaults live in `config.defaults.env` (do not edit that file).
-3. Customize files under `prompts/`.
-4. Commit this scaffold before launching a real run.
-5. Run:
+1. Replace `requirements.md` with the requirement, PRD, or implementation brief.
+2. Optionally copy `config.env.example` to `config.env` and add only the values you want to override; defaults live in `config.defaults.env` (do not edit that file).
+3. Commit this scaffold before launching a real run. The edited `requirements.md` may remain uncommitted; the startup script copies it into the long-run worktree and commits the generated plan there.
+4. Run:
 
 ```bash
-bash ops/hermes-longrun/scripts/preflight.sh
-bash ops/hermes-longrun/scripts/setup-hermes-kanban.sh
 hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"
 ```
 
-Preflight includes a runner dry-run smoke pass, so staging/verification control
-flow errors fail before a real unattended run starts.
+The startup command creates a long-run worktree and branch. If `task-queue.md`
+still contains the placeholder, it generates `generated/plan.md`,
+`generated/tasks/*.md`, and a real `task-queue.md`, then commits those planning
+artifacts before running preflight and the task loop.
 
 If you scaffolded into a different directory, replace `ops/hermes-longrun` with that path.
+
+## Manual Task Queue Mode
+
+Advanced users can replace `task-queue.md` and provide task docs manually. When
+the task queue already validates, auto-planning from `requirements.md` is
+skipped.
 
 ## Monitoring
 

@@ -132,21 +132,17 @@ else
   warn "SKIP_HERMES_SMOKE=1; Hermes smoke test skipped"
 fi
 
-tracked_runtime="$(git -C "${REPO_ROOT}" ls-files "${RUNS_DIR}/*" 2>/dev/null || true)"
+tracked_runtime="$(
+  git -C "${REPO_ROOT}" ls-files "${RUNS_DIR}/*" 2>/dev/null \
+    | grep -v -E "^${RUNS_DIR%/}/\\.gitignore$" || true
+)"
 if [[ -n "${tracked_runtime}" ]]; then
   fail "runtime files are tracked and can break unattended dirty checks: ${tracked_runtime//$'\n'/, }"
 fi
 
-if [[ -f "${LONGRUN_DIR}/task-queue.md" ]]; then
-  if grep -q '^TASK|EX-001|' "${LONGRUN_DIR}/task-queue.md"; then
-    fail "task-queue.md still contains the EX-001 placeholder. Replace it with real tasks before launching."
-  fi
-  if ! grep -q '^TASK|' "${LONGRUN_DIR}/task-queue.md"; then
-    fail "task-queue.md has no TASK| lines. The runner would treat the queue as empty."
-  fi
-else
-  fail "task-queue.md is missing under ${LONGRUN_DIR}"
-fi
+"${SCRIPT_DIR}/validate-task-plan.py" \
+  --repo-root "${REPO_ROOT}" \
+  --longrun-dir "${LONGRUN_DIR}" || fail "task plan validation failed"
 
 if [[ "${SKIP_RUNNER_SMOKE}" != "1" ]]; then
   first_task="$(awk -F'|' '$1 == "TASK" { print $2; exit }' "${LONGRUN_DIR}/task-queue.md")"

@@ -1,9 +1,9 @@
 # Codex Orchestrator
 
-Codex Orchestrator is a Codex skill for running long, unattended software tasks with a clear split of responsibility:
+Codex Orchestrator is a Codex skill for turning one large requirements document into a supervised long-running implementation pipeline:
 
 - **Hermes** supervises the run, monitors state, and makes final recovery decisions.
-- **Codex CLI** performs analysis, implementation, verification, and recovery advisory work through `codex exec`.
+- **Codex CLI** generates task slices, then performs analysis, implementation, verification, and recovery advisory work through `codex exec`.
 - **Shell scripts** own deterministic control flow: preflight, background execution, state files, timeouts, recovery gates, git staging, commits, and blocked-task records.
 
 This repository packages the installable skill as `skills/hermes-codex-longrun` while keeping GitHub-facing documentation at the repository root.
@@ -14,7 +14,8 @@ Codex Orchestrator is the `plus` variant of the Hermes + Codex long-run workflow
 
 Key behavior:
 
-- Serial execution with topological task ordering from `task-queue.md`.
+- Automatic task-plan generation from `ops/hermes-longrun/requirements.md`.
+- Serial execution with topological task ordering from generated or manually supplied `task-queue.md`.
 - Dependency-cascade skipping for downstream tasks after an explicit block.
 - Per-phase Codex wall-clock timeouts.
 - Verifier file-scope cross-checks before commit.
@@ -25,11 +26,11 @@ Key behavior:
 
 ## Installation
 
-Install from GitHub with the Codex skill installer, replacing `<owner>` with the GitHub account or organization that hosts this repository:
+Install from GitHub with the Codex skill installer:
 
 ```bash
 python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
-  --repo <owner>/codex-orchestrator \
+  --repo Devil-MayCry/codex-orchestrator \
   --path skills/hermes-codex-longrun
 ```
 
@@ -55,22 +56,23 @@ python3 ~/.codex/skills/hermes-codex-longrun/scripts/init_longrun_template.py \
   --target ops/hermes-longrun
 ```
 
-In the target project:
+In the target project, replace the generated requirements placeholder:
 
 ```bash
-cp ops/hermes-longrun/config.env.example ops/hermes-longrun/config.env
-$EDITOR ops/hermes-longrun/task-queue.md
-$EDITOR ops/hermes-longrun/config.env
-$EDITOR ops/hermes-longrun/prompts/*.md
+$EDITOR ops/hermes-longrun/requirements.md
 ```
 
-Run preflight before starting a real supervised run:
+Then start Hermes:
 
 ```bash
-bash ops/hermes-longrun/scripts/preflight.sh
-bash ops/hermes-longrun/scripts/setup-hermes-kanban.sh
 hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"
 ```
+
+The startup command creates the long-run worktree and branch. If `task-queue.md` still contains the placeholder, Codex generates `generated/plan.md`, `generated/tasks/*.md`, and a real `task-queue.md`, then commits those planning artifacts before preflight and execution.
+
+For local overrides, copy `config.env.example` to `config.env`. `config.env` is ignored by the template and is copied into the long-run worktree at startup.
+
+Advanced users may replace `task-queue.md` and provide task docs manually. If the queue already validates, requirements-based auto-planning is skipped.
 
 If you scaffolded into another directory, replace `ops/hermes-longrun` with that path.
 
@@ -110,6 +112,7 @@ The runner records decisions under `runs/<run-id>/recovery-decisions.md`. Blocke
 │       ├── scripts/
 │       ├── references/
 │       └── assets/hermes-longrun-template/
+├── tests/
 └── .gitignore
 ```
 
@@ -125,11 +128,11 @@ Codex Orchestrator 是一个用于长时间无人值守软件任务的 Codex ski
 
 ## 中文安装
 
-从 GitHub 安装时，把 `<owner>` 替换成你的 GitHub 用户名或组织名：
+从 GitHub 安装：
 
 ```bash
 python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
-  --repo <owner>/codex-orchestrator \
+  --repo Devil-MayCry/codex-orchestrator \
   --path skills/hermes-codex-longrun
 ```
 
@@ -155,14 +158,16 @@ python3 ~/.codex/skills/hermes-codex-longrun/scripts/init_longrun_template.py \
   --target ops/hermes-longrun
 ```
 
-然后编辑 `task-queue.md`、复制并修改 `config.env`、定制 `prompts/` 下的提示词，运行 preflight，最后用生成的 `HERMES_SUPERVISOR_PROMPT.md` 启动 Hermes：
+然后只需要把 `requirements.md` 替换成你的大需求文档，再用生成的 `HERMES_SUPERVISOR_PROMPT.md` 启动 Hermes：
 
 ```bash
-cp ops/hermes-longrun/config.env.example ops/hermes-longrun/config.env
-bash ops/hermes-longrun/scripts/preflight.sh
-bash ops/hermes-longrun/scripts/setup-hermes-kanban.sh
+$EDITOR ops/hermes-longrun/requirements.md
 hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"
 ```
+
+启动脚本会创建 long-run worktree/branch。如果 `task-queue.md` 仍是占位内容，它会先从 `requirements.md` 自动生成 `generated/plan.md`、`generated/tasks/*.md` 和真实 `task-queue.md`，并把这些规划产物提交到 long-run 分支，然后自动运行 preflight、kanban setup 和任务执行流程。
+
+如果你已经手工写好了 `task-queue.md` 和任务文档，且校验通过，自动拆分会跳过，继续使用现有手工队列。
 
 运行期间只用 `monitor-pipeline.sh` 观察状态。当进入 `STATE=AWAITING_DECISION` 时，读取 advisory、verifier report 和 checks log，再通过 `decide-recovery.sh` 写入 `RECOVER_BUILD`、`RECOVER_CHECKS`、`ACCEPT_SCOPED` 或 `BLOCKED`。
 
