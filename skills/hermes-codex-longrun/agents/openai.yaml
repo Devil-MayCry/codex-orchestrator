@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Orchestrator"
+  short_description: "Supervise long Codex work with Hermes recovery decisions."
+  default_prompt: "Use $hermes-codex-longrun to set up and supervise a long-running Codex implementation pipeline."

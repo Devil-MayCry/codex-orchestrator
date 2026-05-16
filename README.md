@@ -1,0 +1,171 @@
+# Codex Orchestrator
+
+Codex Orchestrator is a Codex skill for running long, unattended software tasks with a clear split of responsibility:
+
+- **Hermes** supervises the run, monitors state, and makes final recovery decisions.
+- **Codex CLI** performs analysis, implementation, verification, and recovery advisory work through `codex exec`.
+- **Shell scripts** own deterministic control flow: preflight, background execution, state files, timeouts, recovery gates, git staging, commits, and blocked-task records.
+
+This repository packages the installable skill as `skills/hermes-codex-longrun` while keeping GitHub-facing documentation at the repository root.
+
+## What It Does
+
+Codex Orchestrator is the `plus` variant of the Hermes + Codex long-run workflow. Codex writes `ADVISE_*` recovery advisories, but Hermes is the supervisor of record and writes the final decision through `decide-recovery.sh`.
+
+Key behavior:
+
+- Serial execution with topological task ordering from `task-queue.md`.
+- Dependency-cascade skipping for downstream tasks after an explicit block.
+- Per-phase Codex wall-clock timeouts.
+- Verifier file-scope cross-checks before commit.
+- Isolated git worktrees and branches for each run.
+- `lessons.md` transfer across tasks.
+- Recovery decisions of `RECOVER_BUILD`, `RECOVER_CHECKS`, `ACCEPT_SCOPED`, or `BLOCKED`.
+- A default 300 second Hermes decision timeout that auto-approves the Codex advisory and records `auto_approved_by_timeout=1`.
+
+## Installation
+
+Install from GitHub with the Codex skill installer, replacing `<owner>` with the GitHub account or organization that hosts this repository:
+
+```bash
+python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
+  --repo <owner>/codex-orchestrator \
+  --path skills/hermes-codex-longrun
+```
+
+Restart Codex after installing so the skill is discovered.
+
+For local development from a checked-out copy:
+
+```bash
+rsync -a --delete \
+  skills/hermes-codex-longrun/ \
+  "${CODEX_HOME:-$HOME/.codex}/skills/hermes-codex-longrun/"
+```
+
+Restart Codex after syncing local changes.
+
+## Quick Start
+
+Scaffold the long-run template into a target project:
+
+```bash
+python3 ~/.codex/skills/hermes-codex-longrun/scripts/init_longrun_template.py \
+  --repo /path/to/project \
+  --target ops/hermes-longrun
+```
+
+In the target project:
+
+```bash
+cp ops/hermes-longrun/config.env.example ops/hermes-longrun/config.env
+$EDITOR ops/hermes-longrun/task-queue.md
+$EDITOR ops/hermes-longrun/config.env
+$EDITOR ops/hermes-longrun/prompts/*.md
+```
+
+Run preflight before starting a real supervised run:
+
+```bash
+bash ops/hermes-longrun/scripts/preflight.sh
+bash ops/hermes-longrun/scripts/setup-hermes-kanban.sh
+hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"
+```
+
+If you scaffolded into another directory, replace `ops/hermes-longrun` with that path.
+
+## Monitoring And Recovery
+
+Hermes should monitor the background pipeline with:
+
+```bash
+bash ops/hermes-longrun/scripts/monitor-pipeline.sh
+```
+
+If the monitor reports `STATE=RUNNING`, wait briefly and monitor again. If it reports `STATE=AWAITING_DECISION`, read the advisory, verifier report, and checks log, then record the final decision:
+
+```bash
+bash ops/hermes-longrun/scripts/decide-recovery.sh <TASK_ID> <DECISION> "<reason>"
+```
+
+Valid decisions are:
+
+- `RECOVER_BUILD`
+- `RECOVER_CHECKS`
+- `ACCEPT_SCOPED`
+- `BLOCKED`
+
+The runner records decisions under `runs/<run-id>/recovery-decisions.md`. Blocked tasks are recorded under `runs/<run-id>/blocked-tasks.md`.
+
+## Repository Layout
+
+```text
+.
+├── README.md
+├── LICENSE
+├── skills/
+│   └── hermes-codex-longrun/
+│       ├── SKILL.md
+│       ├── agents/openai.yaml
+│       ├── scripts/
+│       ├── references/
+│       └── assets/hermes-longrun-template/
+└── .gitignore
+```
+
+## 中文说明
+
+Codex Orchestrator 是一个用于长时间无人值守软件任务的 Codex skill。它把职责拆开：
+
+- **Hermes** 负责监督流程、轮询状态、总结日志，并对每次恢复动作做最终决策。
+- **Codex CLI** 通过 `codex exec` 负责分析、实现、验证和恢复建议。
+- **Shell 脚本** 负责确定性的控制流，包括 preflight、后台执行、状态文件、超时、恢复闸门、Git 暂存、提交和 blocked task 记录。
+
+这是 Hermes + Codex long-run 工作流的 `plus` 版本：Codex 只写 `ADVISE_*` 恢复建议，Hermes 通过 `decide-recovery.sh` 写入最终决策。默认情况下，如果 Hermes 在 300 秒内没有写入决策，runner 会自动批准 Codex 的建议，并记录 `auto_approved_by_timeout=1`。
+
+## 中文安装
+
+从 GitHub 安装时，把 `<owner>` 替换成你的 GitHub 用户名或组织名：
+
+```bash
+python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
+  --repo <owner>/codex-orchestrator \
+  --path skills/hermes-codex-longrun
+```
+
+安装后重启 Codex。
+
+本地开发时，可以把仓库里的 skill 同步到 Codex skills 目录：
+
+```bash
+rsync -a --delete \
+  skills/hermes-codex-longrun/ \
+  "${CODEX_HOME:-$HOME/.codex}/skills/hermes-codex-longrun/"
+```
+
+同步后重启 Codex。
+
+## 中文快速开始
+
+在目标项目中生成长任务模板：
+
+```bash
+python3 ~/.codex/skills/hermes-codex-longrun/scripts/init_longrun_template.py \
+  --repo /path/to/project \
+  --target ops/hermes-longrun
+```
+
+然后编辑 `task-queue.md`、复制并修改 `config.env`、定制 `prompts/` 下的提示词，运行 preflight，最后用生成的 `HERMES_SUPERVISOR_PROMPT.md` 启动 Hermes：
+
+```bash
+cp ops/hermes-longrun/config.env.example ops/hermes-longrun/config.env
+bash ops/hermes-longrun/scripts/preflight.sh
+bash ops/hermes-longrun/scripts/setup-hermes-kanban.sh
+hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"
+```
+
+运行期间只用 `monitor-pipeline.sh` 观察状态。当进入 `STATE=AWAITING_DECISION` 时，读取 advisory、verifier report 和 checks log，再通过 `decide-recovery.sh` 写入 `RECOVER_BUILD`、`RECOVER_CHECKS`、`ACCEPT_SCOPED` 或 `BLOCKED`。
+
+## License
+
+MIT
