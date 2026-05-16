@@ -84,18 +84,20 @@ Hermes should monitor the background pipeline with:
 bash ops/hermes-longrun/scripts/monitor-pipeline.sh
 ```
 
-If the monitor reports `STATE=RUNNING`, wait briefly and monitor again. If it reports `STATE=AWAITING_DECISION`, read the advisory, verifier report, and checks log, then record the final decision:
+If the monitor reports `STATE=RUNNING`, Hermes must keep supervising and run the bounded wait-and-monitor command until the pipeline reaches a terminal state or needs a decision:
 
 ```bash
-bash ops/hermes-longrun/scripts/decide-recovery.sh <TASK_ID> <DECISION> "<reason>"
+bash ops/hermes-longrun/scripts/wait-and-monitor.sh
 ```
 
-Valid decisions are:
+If it reports `STATE=AWAITING_DECISION`, read the advisory, verifier report, and checks log, then record the final decision with one of the copy-paste commands printed by the monitor. Valid actions are:
 
 - `RECOVER_BUILD`
 - `RECOVER_CHECKS`
 - `ACCEPT_SCOPED`
 - `BLOCKED`
+
+Only `STATE=FINISHED`, `STATE=FAILED`, `STATE=ORPHANED`, or `STATE=NO_RUN` should be treated as terminal. The background runner may continue if Hermes exits, but that is a fallback, not the intended supervision flow.
 
 The runner records decisions under `runs/<run-id>/recovery-decisions.md`. Blocked tasks are recorded under `runs/<run-id>/blocked-tasks.md`.
 
@@ -169,7 +171,13 @@ hermes -z "$(cat ops/hermes-longrun/HERMES_SUPERVISOR_PROMPT.md)"
 
 如果你已经手工写好了 `task-queue.md` 和任务文档，且校验通过，自动拆分会跳过，继续使用现有手工队列。
 
-运行期间只用 `monitor-pipeline.sh` 观察状态。当进入 `STATE=AWAITING_DECISION` 时，读取 advisory、verifier report 和 checks log，再通过 `decide-recovery.sh` 写入 `RECOVER_BUILD`、`RECOVER_CHECKS`、`ACCEPT_SCOPED` 或 `BLOCKED`。
+运行期间先用 `monitor-pipeline.sh` 观察状态；如果是 `STATE=RUNNING`，Hermes 必须继续监督，用有界等待命令继续轮询，直到进入终态或需要决策：
+
+```bash
+bash ops/hermes-longrun/scripts/wait-and-monitor.sh
+```
+
+当进入 `STATE=AWAITING_DECISION` 时，读取 advisory、verifier report 和 checks log，再使用 monitor 输出的 `decide-recovery.sh` 示例命令写入 `RECOVER_BUILD`、`RECOVER_CHECKS`、`ACCEPT_SCOPED` 或 `BLOCKED`。只有 `STATE=FINISHED`、`STATE=FAILED`、`STATE=ORPHANED` 或 `STATE=NO_RUN` 才算终态；后台 runner 可能在 Hermes 退出后继续跑完，但这只是容错，不是推荐监督流程。
 
 ## License
 

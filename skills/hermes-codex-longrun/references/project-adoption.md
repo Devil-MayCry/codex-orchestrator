@@ -64,6 +64,7 @@ Hermes should run only:
 ```bash
 bash ops/hermes-longrun/scripts/start-supervised-pipeline.sh
 bash ops/hermes-longrun/scripts/monitor-pipeline.sh
+bash ops/hermes-longrun/scripts/wait-and-monitor.sh
 ```
 
-The second command can be repeated after short waits.
+Use `monitor-pipeline.sh` for an immediate state check. If it reports `STATE=RUNNING`, Hermes should keep supervising with `wait-and-monitor.sh` until a terminal state or `STATE=AWAITING_DECISION`. Do not treat `STATE=RUNNING` as permission to exit.

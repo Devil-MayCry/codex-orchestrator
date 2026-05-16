@@ -53,6 +53,7 @@ Use this skill for complex work that is too large for one interactive Codex turn
 - Read `references/architecture.md` for the state machine (including the `AWAITING_DECISION` state and the 300s decision timeout) and role split.
 - Read `references/failure-modes.md` before changing retry, monitor, decision-timeout, or blocked-task behavior.
 - Read `references/recovery-playbook.md` when designing or debugging Hermes recovery decisions.
+- Hermes must not treat `STATE=RUNNING` as a stopping point. Use `scripts/wait-and-monitor.sh` for bounded waits, then continue monitoring until `FINISHED`, `FAILED`, `ORPHANED`, `NO_RUN`, or `AWAITING_DECISION`.
 - Prefer fixing the runner, check target, test harness, or project configuration before marking a task blocked.
 - When you see `STATE=AWAITING_DECISION`, you are the decision maker: read the advisory, the verifier report, and the checks log, then call `decide-recovery.sh`. Do not let the timeout decide on your behalf unless the advisory is obviously correct and you record that judgment as the reason.
 - If automation truly cannot continue a task, preserve patches, reset to the last committed state, record why, and continue only tasks whose dependencies remain healthy.

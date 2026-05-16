@@ -30,13 +30,19 @@ skipped.
 
 ## Monitoring
 
-Hermes should only use:
+Hermes should use the immediate monitor command to inspect the current state:
 
 ```bash
 bash ops/hermes-longrun/scripts/monitor-pipeline.sh
 ```
 
-If `STATE=RUNNING`, wait about 60 seconds and run the monitor again. Do not run foreground `tail -f` loops inside Hermes. If `STATE=AWAITING_DECISION`, read the advisory printed by the monitor and call `bash ops/hermes-longrun/scripts/decide-recovery.sh ...` to record the final decision.
+If `STATE=RUNNING`, Hermes must keep supervising and use the bounded wait-and-monitor command until the run reaches a terminal state or asks for a decision:
+
+```bash
+bash ops/hermes-longrun/scripts/wait-and-monitor.sh
+```
+
+Do not run foreground `tail -f` loops inside Hermes. If `STATE=AWAITING_DECISION`, read the advisory printed by the monitor and call one of the copy-paste `bash ops/hermes-longrun/scripts/decide-recovery.sh ...` commands printed by the monitor. Only `STATE=FINISHED`, `STATE=FAILED`, `STATE=ORPHANED`, or `STATE=NO_RUN` is terminal.
 
 ## After A Successful Run
 
